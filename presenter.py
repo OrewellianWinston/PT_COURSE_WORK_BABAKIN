@@ -2,18 +2,14 @@ from decimal import Decimal
 from datetime import datetime
 from model import EmployeeFactory, PayrollItem
 from view import IView
+from services import calculate_annual_salary, calculate_statistics
 
 class AppPresenter:
     def __init__(self, view: IView):
         self.view = view
-        # Храним сотрудников в памяти (список), без БД
         self.employees = []
 
     def run(self):
-        """
-        Основной цикл приложения: показываем меню,
-        обрабатываем выбор пользователя.
-        """
         while True:
             self.view.show_menu()
             choice = self.view.get_input("Выберите пункт меню: ")
@@ -23,7 +19,7 @@ class AppPresenter:
             elif choice == "2":
                 self.add_payroll_item()
             elif choice == "3":
-                self.calculate_annual_salary()
+                self.calculate_annual_salary_action()
             elif choice == "4":
                 self.show_statistics()
             elif choice == "0":
@@ -33,43 +29,40 @@ class AppPresenter:
                 self.view.show_error("Неверный пункт меню")
 
     def add_employee(self):
-        """
-        Добавляем сотрудника:
-        Запрашиваем тип, имя, должность, необходимые ставки.
-        """
-        emp_type = self.view.get_input("Тип сотрудника (fixed/hourly/commission): ")
+        emp_type = self.view.get_input("Тип сотрудника (штатный/почасовой/с_комиссией): ")
         full_name = self.view.get_input("ФИО: ")
         position = self.view.get_input("Должность: ")
 
-        # в зависимости от типа - запрашиваем разные поля
-        if emp_type == "fixed":
+        if emp_type == "штатный":
             rate_str = self.view.get_input("Месячная ставка: ")
             rate = Decimal(rate_str)
             emp = EmployeeFactory.create_employee(
-                employee_type='fixed',
+                employee_type='штатный',
                 full_name=full_name,
                 position=position,
-                rate=rate
+                monthly_rate=rate
             )
-        elif emp_type == "hourly":
+
+        elif emp_type == "почасовой":
             hour_rate_str = self.view.get_input("Ставка в час: ")
             hours_per_month_str = self.view.get_input("Часов в месяц: ")
             hour_rate = Decimal(hour_rate_str)
             hours_per_month = int(hours_per_month_str)
             emp = EmployeeFactory.create_employee(
-                employee_type='hourly',
+                employee_type='почасовой',
                 full_name=full_name,
                 position=position,
                 hour_rate=hour_rate,
                 hours_per_month=hours_per_month
             )
-        elif emp_type == "commission":
+
+        elif emp_type == "с_комиссией":
             base_str = self.view.get_input("Базовая ставка в месяц: ")
             comm_str = self.view.get_input("Процент комиссии (число): ")
             base_rate = Decimal(base_str)
             commission_percent = Decimal(comm_str)
             emp = EmployeeFactory.create_employee(
-                employee_type='commission',
+                employee_type='с_комиссией',
                 full_name=full_name,
                 position=position,
                 base_rate=base_rate,
@@ -83,16 +76,12 @@ class AppPresenter:
         self.view.show_message(f"Сотрудник {emp.full_name} добавлен!")
 
     def add_payroll_item(self):
-        """
-        Добавить начисление к сотруднику
-        """
         if not self.employees:
             self.view.show_error("Нет сотрудников!")
             return
 
-        # Выведем список сотрудников
         for i, emp in enumerate(self.employees):
-            self.view.show_message(f"[{i}] {emp.full_name} ({emp.employee_type})")
+            self.view.show_message(f"[{i}] {emp.full_name} ({emp.position})")
 
         idx_str = self.view.get_input("Выберите индекс сотрудника: ")
         try:
@@ -117,15 +106,11 @@ class AppPresenter:
         employee.add_payroll_item(item)
         self.view.show_message(f"Начисление добавлено сотруднику {employee.full_name}.")
 
-    def calculate_annual_salary(self):
-        """
-        Посчитать годовую зарплату конкретного сотрудника за год.
-        """
+    def calculate_annual_salary_action(self):
         if not self.employees:
             self.view.show_error("Нет сотрудников!")
             return
 
-        # список сотрудников
         for i, emp in enumerate(self.employees):
             self.view.show_message(f"[{i}] {emp.full_name}")
 
@@ -140,16 +125,12 @@ class AppPresenter:
             self.view.show_error("Некорректный ввод!")
             return
 
-        annual_salary = employee.get_annual_salary(year)
+        annual_salary = calculate_annual_salary(employee, year)
         self.view.show_message(
             f"Годовая зарплата {employee.full_name} за {year} = {annual_salary}"
         )
 
     def show_statistics(self):
-        """
-        Показать агрегирующую статистику по всем сотрудникам
-        (сумма, среднее, макс, мин).
-        """
         if not self.employees:
             self.view.show_error("Нет сотрудников!")
             return
@@ -161,22 +142,10 @@ class AppPresenter:
             self.view.show_error("Неверный год!")
             return
 
-        salaries = []
-        for emp in self.employees:
-            sal = emp.get_annual_salary(year)
-            salaries.append(sal)
-
-        if not salaries:
-            self.view.show_message("Нет начислений за указанный год.")
-            return
-
-        total_sum = sum(salaries)
-        avg_salary = total_sum / len(salaries)
-        max_salary = max(salaries)
-        min_salary = min(salaries)
+        stats = calculate_statistics(self.employees, year)
 
         self.view.show_message("Статистика:")
-        self.view.show_message(f"  Суммарная зарплата: {total_sum}")
-        self.view.show_message(f"  Средняя зарплата:   {avg_salary}")
-        self.view.show_message(f"  Максимальная:       {max_salary}")
-        self.view.show_message(f"  Минимальная:        {min_salary}")
+        self.view.show_message(f"  Суммарная зарплата: {stats['sum']}")
+        self.view.show_message(f"  Средняя зарплата:   {stats['avg']}")
+        self.view.show_message(f"  Максимальная:       {stats['max']}")
+        self.view.show_message(f"  Минимальная:        {stats['min']}")
